@@ -1,0 +1,23 @@
+# Datasets
+data/
+har_raw/
+*.zip
+*.csv
+
+# Model weights
+*.pth
+
+# Virtual env
+venv/
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# OS junk
+.DS_Store
+Thumbs.db
