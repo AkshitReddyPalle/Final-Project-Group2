@@ -1,107 +1,155 @@
 import os
+import time
 import copy
+import argparse
+
+import numpy as np
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
+import torch.optim as optim
+from torch.optim.lr_scheduler import StepLR
 from torchvision import datasets, transforms, models
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+from sklearn.metrics import classification_report, confusion_matrix
 
-# ------------------------------------
-# 1. Device selection (GPU if available)
-# ------------------------------------
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print("Using device:", device)
 
-# ------------------------------------
-# 2. Paths & Hyperparameters
-# ------------------------------------
-base_dir = os.path.dirname(os.path.abspath(__file__))  # .../code
-data_dir = os.path.join(base_dir, "..", "data")        # .../data
+def build_dataloaders(data_dir: str,
+                      batch_size: int = 32,
+                      num_workers: int = 2,
+                      image_size: int = 224):
+    """
+    Build train / val dataloaders from an ImageFolder-style directory.
 
-batch_size = 32
-num_epochs = 10
-lr = 1e-3
+    Expected structure:
 
-# ------------------------------------
-# 3. Data Transforms (ImageNet standard)
-# ------------------------------------
-imagenet_mean = [0.485, 0.456, 0.406]
-imagenet_std  = [0.229, 0.224, 0.225]
+        data/
+          train/
+            class1/ img1.jpg ...
+          val/
+            class1/ ...
 
-train_transform = transforms.Compose([
-    transforms.Resize((224, 224)),
-    transforms.RandomHorizontalFlip(),
-    transforms.RandomRotation(10),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=imagenet_mean, std=imagenet_std),
-])
+    """
+    train_dir = os.path.join(data_dir, "train")
+    val_dir = os.path.join(data_dir, "val")
 
-val_transform = transforms.Compose([
-    transforms.Resize((224, 224)),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=imagenet_mean, std=imagenet_std),
-])
+    if not os.path.isdir(train_dir) or not os.path.isdir(val_dir):
+        raise FileNotFoundError(
+            f"Could not find train/val folders under {data_dir}. "
+            "Expected data/train and data/val."
+        )
 
-# ------------------------------------
-# 4. Datasets & Dataloaders
-# ------------------------------------
-train_dir = os.path.join(data_dir, "train")
-val_dir   = os.path.join(data_dir, "val")
+    train_transform = transforms.Compose([
+        transforms.Resize((image_size, image_size)),
+        transforms.RandomHorizontalFlip(),
+        transforms.RandomRotation(10),
+        transforms.ColorJitter(brightness=0.1, contrast=0.1),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                             std=[0.229, 0.224, 0.225]),
+    ])
 
-train_dataset = datasets.ImageFolder(train_dir, transform=train_transform)
-val_dataset   = datasets.ImageFolder(val_dir,   transform=val_transform)
+    val_transform = transforms.Compose([
+        transforms.Resize((image_size, image_size)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                             std=[0.229, 0.224, 0.225]),
+    ])
 
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
-val_loader   = DataLoader(val_dataset,   batch_size=batch_size, shuffle=False, num_workers=0)
+    train_dataset = datasets.ImageFolder(train_dir, transform=train_transform)
+    val_dataset = datasets.ImageFolder(val_dir, transform=val_transform)
 
-class_names = train_dataset.classes
-num_classes = len(class_names)
+    train_loader = torch.utils.data.DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+    val_loader = torch.utils.data.DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
 
-print("Classes:", class_names)
-print("Number of classes:", num_classes)
+    class_names = train_dataset.classes
+    return {"train": train_loader, "val": val_loader}, class_names
 
-# ------------------------------------
-# 5. Load Pretrained ResNet50
-# ------------------------------------
-model = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
 
-# Freeze all layers
-for param in model.parameters():
-    param.requires_grad = False
+def build_model(num_classes: int, fine_tune_last_block: bool = True) -> nn.Module:
+    """
+    Create a ResNet-50 model pre-trained on ImageNet and adapt the final layer
+    for our number of classes.
 
-# Replace classification head
-in_features = model.fc.in_features
-model.fc = nn.Linear(in_features, num_classes)
+    If fine_tune_last_block=True, only layer4 + fc are unfrozen; everything
+    else stays frozen.
+    """
+    model = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
 
-model = model.to(device)
+    # Freeze all parameters first
+    for param in model.parameters():
+        param.requires_grad = False
 
-# ------------------------------------
-# 6. Loss, Optimizer, Scheduler
-# ------------------------------------
-criterion = nn.CrossEntropyLoss()
-optimizer = torch.optim.Adam(model.fc.parameters(), lr=lr)
-scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.1)
+    if fine_tune_last_block:
+        for name, param in model.named_parameters():
+            if "layer4" in name or "fc" in name:
+                param.requires_grad = True
+    else:
+        # Unfreeze everything for full fine-tuning
+        for param in model.parameters():
+            param.requires_grad = True
 
-# ------------------------------------
-# 7. Training Function
-# ------------------------------------
-def train_model(model, criterion, optimizer, scheduler, num_epochs):
+    # Replace final classification head
+    in_features = model.fc.in_features
+    model.fc = nn.Linear(in_features, num_classes)
+    return model
+
+
+def train_model(model: nn.Module,
+                dataloaders,
+                device,
+                num_epochs: int = 15,
+                lr: float = 1e-3,
+                step_size: int = 5,
+                gamma: float = 0.1,
+                class_names=None,
+                save_path: str = "resnet50_har_best_finetuned.pth"):
+
+    criterion = nn.CrossEntropyLoss()
+
+    # Only optimize the parameters that require gradients
+    params_to_update = [p for p in model.parameters() if p.requires_grad]
+    optimizer = optim.Adam(params_to_update, lr=lr)
+
+    scheduler = StepLR(optimizer, step_size=step_size, gamma=gamma)
+
+    model = model.to(device)
+
     best_model_wts = copy.deepcopy(model.state_dict())
-    best_val_acc = 0.0
+    best_acc = 0.0
 
-    for epoch in range(num_epochs):
-        print(f"\nEpoch {epoch+1}/{num_epochs}")
+    since = time.time()
+
+    for epoch in range(1, num_epochs + 1):
+        print(f"\nEpoch {epoch}/{num_epochs}")
         print("-" * 30)
-        
+
         for phase in ["train", "val"]:
-            model.train() if phase == "train" else model.eval()
-            dataloader = train_loader if phase == "train" else val_loader
+            if phase == "train":
+                model.train()
+            else:
+                model.eval()
 
             running_loss = 0.0
-            preds_all, labels_all = [], []
+            running_corrects = 0
 
-            for inputs, labels in dataloader:
-                inputs, labels = inputs.to(device), labels.to(device)
+            all_labels = []
+            all_preds = []
+
+            for inputs, labels in dataloaders[phase]:
+                inputs = inputs.to(device)
+                labels = labels.to(device)
+
                 optimizer.zero_grad()
 
                 with torch.set_grad_enabled(phase == "train"):
@@ -114,57 +162,114 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs):
                         optimizer.step()
 
                 running_loss += loss.item() * inputs.size(0)
-                preds_all.extend(preds.cpu().numpy())
-                labels_all.extend(labels.cpu().numpy())
+                running_corrects += torch.sum(preds == labels).item()
 
-            epoch_loss = running_loss / len(dataloader.dataset)
-            epoch_acc = accuracy_score(labels_all, preds_all)
+                all_labels.extend(labels.detach().cpu().numpy().tolist())
+                all_preds.extend(preds.detach().cpu().numpy().tolist())
+
+            epoch_loss = running_loss / len(dataloaders[phase].dataset)
+            epoch_acc = running_corrects / len(dataloaders[phase].dataset)
 
             print(f"{phase} Loss: {epoch_loss:.4f} | Acc: {epoch_acc:.4f}")
 
-            if phase == "val" and epoch_acc > best_val_acc:
-                best_val_acc = epoch_acc
-                best_model_wts = copy.deepcopy(model.state_dict())
+            if phase == "val":
+                scheduler.step()
 
-        scheduler.step()
+                if epoch_acc > best_acc:
+                    best_acc = epoch_acc
+                    best_model_wts = copy.deepcopy(model.state_dict())
+                    # Ensure directory exists
+                    os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
+                    torch.save(best_model_wts, save_path)
+                    print(f"  🔥 New best model saved to {save_path}")
 
-    print("\nBest Validation Accuracy:", best_val_acc)
+    time_elapsed = time.time() - since
+    print(f"\nTraining complete in {time_elapsed/60:.1f} min")
+    print(f"Best Validation Accuracy: {best_acc:.4f}")
+
+    # Load best weights
     model.load_state_dict(best_model_wts)
+
+    # Final evaluation with classification report + confusion matrix on val set
+    if "val" in dataloaders and class_names is not None:
+        model.eval()
+        all_labels = []
+        all_preds = []
+        with torch.no_grad():
+            for inputs, labels in dataloaders["val"]:
+                inputs = inputs.to(device)
+                labels = labels.to(device)
+                outputs = model(inputs)
+                _, preds = torch.max(outputs, 1)
+                all_labels.extend(labels.detach().cpu().numpy().tolist())
+                all_preds.extend(preds.detach().cpu().numpy().tolist())
+
+        print("\nClassification Report:")
+        print(classification_report(all_labels, all_preds, target_names=class_names))
+
+        cm = confusion_matrix(all_labels, all_preds)
+        print("\nConfusion Matrix:")
+        print(cm)
+
     return model
 
-# ------------------------------------
-# 8. Train the model
-# ------------------------------------
-model = train_model(model, criterion, optimizer, scheduler, num_epochs)
 
-# Save best model
-models_dir = os.path.join(base_dir, "models")
-os.makedirs(models_dir, exist_ok=True)
-save_path = os.path.join(models_dir, "resnet50_har_best.pth")
-torch.save(model.state_dict(), save_path)
-print("Model saved to:", save_path)
+def main():
+    parser = argparse.ArgumentParser(
+        description="Train ResNet-50 on Human Action Recognition dataset."
+    )
+    parser.add_argument("--data_dir", type=str, default=None,
+                        help="Path to data folder containing train/ and val/ subfolders.")
+    parser.add_argument("--epochs", type=int, default=15, help="Number of training epochs.")
+    parser.add_argument("--batch_size", type=int, default=32, help="Batch size.")
+    parser.add_argument("--num_workers", type=int, default=2, help="DataLoader workers.")
+    parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate.")
+    parser.add_argument("--save_dir", type=str, default="model",
+                        help="Directory to save best model .pth file.")
+    parser.add_argument("--fine_tune_last_block", action="store_true",
+                        help="Only fine-tune ResNet layer4 + fc instead of full network.")
 
-# ------------------------------------
-# 9. Final Evaluation
-# ------------------------------------
-model.eval()
-preds_all = []
-labels_all = []
+    args = parser.parse_args()
 
-with torch.no_grad():
-    for inputs, labels in val_loader:
-        inputs, labels = inputs.to(device), labels.to(device)
-        outputs = model(inputs)
-        _, preds = torch.max(outputs, 1)
+    # Resolve data_dir
+    if args.data_dir is None:
+        # Assume script lives in code/ and data/ is sibling of that folder
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(script_dir)
+        data_dir = os.path.join(project_root, "data")
+    else:
+        data_dir = args.data_dir
 
-        preds_all.extend(preds.cpu().numpy())
-        labels_all.extend(labels.cpu().numpy())
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
 
-val_acc = accuracy_score(labels_all, preds_all)
-print("\nFinal Validation Accuracy:", val_acc)
+    dataloaders, class_names = build_dataloaders(
+        data_dir=data_dir,
+        batch_size=args.batch_size,
+        num_workers=args.num_workers,
+    )
 
-print("\nClassification Report:")
-print(classification_report(labels_all, preds_all, target_names=class_names))
+    print("Classes:", class_names)
+    print("Number of classes:", len(class_names))
 
-print("\nConfusion Matrix:")
-print(confusion_matrix(labels_all, preds_all))
+    model = build_model(num_classes=len(class_names),
+                        fine_tune_last_block=args.fine_tune_last_block)
+
+    os.makedirs(args.save_dir, exist_ok=True)
+    save_path = os.path.join(args.save_dir, "resnet50_har_best_finetuned.pth")
+
+    train_model(
+        model=model,
+        dataloaders=dataloaders,
+        device=device,
+        num_epochs=args.epochs,
+        lr=args.lr,
+        step_size=5,
+        gamma=0.1,
+        class_names=class_names,
+        save_path=save_path,
+    )
+
+
+if __name__ == "__main__":
+    main()
