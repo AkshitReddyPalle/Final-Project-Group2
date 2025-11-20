@@ -1,7 +1,0 @@
-torch
-torchvision
-torchaudio
-pandas
-scikit-learn
-opencv-python
-matplotlib
