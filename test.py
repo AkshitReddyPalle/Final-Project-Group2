@@ -129,7 +129,7 @@ def run_test():
 
     submission_df = pd.DataFrame(predictions, columns=["filename", "label"])
     submission_df.to_csv("submission.csv", index=False)
-    print("\n✅ Submission saved as submission.csv")
+    print("\n Submission saved as submission.csv")
     print(submission_df.head())
 
 
