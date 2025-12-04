@@ -4,23 +4,35 @@ from torch.utils.data import Dataset
 from PIL import Image
 
 class HARCsvDataset(Dataset):
-    def __init__(self, csv_path, img_dir, transform=None):
-        self.data = pd.read_csv(csv_path)
+    def __init__(self, csv_path, img_dir, transform=None, has_labels=True):
+        self.csv_path = csv_path
         self.img_dir = img_dir
         self.transform = transform
+        self.has_labels = has_labels
 
-        # Map class names to indices
-        self.classes = sorted(self.data["label"].unique())
-        self.class_to_idx = {c: i for i, c in enumerate(self.classes)}
-        self.data["label_idx"] = self.data["label"].map(self.class_to_idx)
+        self.data = pd.read_csv(csv_path)
+        if self.has_labels:
+            if 'label' in self.data.columns:
+                self.classes = sorted(self.data['label'].unique())
+                self.data['label_idx'] = self.data['label'].apply(lambda x: self.classes.index(x))
+            else:
+                raise KeyError("CSV does not contain 'label' column")
+        else:
+            self.classes = []
 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, idx):
-        row = self.data.iloc[idx]
-        img_path = os.path.join(self.img_dir, row["filename"])
-        img = Image.open(img_path).convert("RGB")
+        img_name = self.data.iloc[idx]['filename']
+        img_path = os.path.join(self.img_dir, img_name)
+        image = Image.open(img_path).convert('RGB')
+
         if self.transform:
-            img = self.transform(img)
-        return img, row["label_idx"]
+            image = self.transform(image)
+
+        if self.has_labels:
+            label = self.data.iloc[idx]['label_idx']
+            return image, label
+        else:
+            return image, img_name
