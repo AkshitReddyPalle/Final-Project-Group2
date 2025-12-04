@@ -4,35 +4,56 @@ from torch.utils.data import Dataset
 from PIL import Image
 
 class HARCsvDataset(Dataset):
+    """
+    Custom dataset for HAR (Human Action Recognition) CSV files.
+    Handles both labeled (train/val) and unlabeled (test) datasets.
+    """
     def __init__(self, csv_path, img_dir, transform=None, has_labels=True):
-        self.csv_path = csv_path
+        self.df = pd.read_csv(csv_path)
         self.img_dir = img_dir
         self.transform = transform
         self.has_labels = has_labels
 
-        self.data = pd.read_csv(csv_path)
-        if self.has_labels:
-            if 'label' in self.data.columns:
-                self.classes = sorted(self.data['label'].unique())
-                self.data['label_idx'] = self.data['label'].apply(lambda x: self.classes.index(x))
-            else:
-                raise KeyError("CSV does not contain 'label' column")
-        else:
-            self.classes = []
+        # Normalize column names
+        self.df.columns = [c.lower() for c in self.df.columns]
+
+        if "filename" not in self.df.columns:
+            raise ValueError(f"'filename' column not found in CSV: {csv_path}")
+
+        if self.has_labels and "label" not in self.df.columns:
+            raise ValueError(f"'label' column missing in labeled CSV: {csv_path}")
 
     def __len__(self):
-        return len(self.data)
+        return len(self.df)
 
     def __getitem__(self, idx):
-        img_name = self.data.iloc[idx]['filename']
+        row = self.df.iloc[idx]
+        img_name = row["filename"]
         img_path = os.path.join(self.img_dir, img_name)
-        image = Image.open(img_path).convert('RGB')
 
+        img = Image.open(img_path).convert("RGB")
         if self.transform:
-            image = self.transform(image)
+            img = self.transform(img)
 
         if self.has_labels:
-            label = self.data.iloc[idx]['label_idx']
-            return image, label
+            # Convert label string to integer index
+            label = row["label"]
+            if isinstance(label, str):
+                label = HARCsvDataset.label_to_index(label)
+            return img, label
         else:
-            return image, img_name
+            return img, img_name
+
+    # Map class names to indices
+    classes = ['calling', 'clapping', 'cycling', 'dancing', 'drinking', 'eating',
+               'fighting', 'hugging', 'laughing', 'listening_to_music', 'running',
+               'sitting', 'sleeping', 'texting', 'using_laptop']
+    class_to_idx = {cls_name: idx for idx, cls_name in enumerate(classes)}
+
+    @staticmethod
+    def label_to_index(label):
+        return HARCsvDataset.class_to_idx[label]
+
+    @staticmethod
+    def index_to_label(idx):
+        return HARCsvDataset.classes[idx]
