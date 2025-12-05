@@ -1,59 +1,75 @@
 import os
 import pandas as pd
-from torch.utils.data import Dataset
 from PIL import Image
+from torch.utils.data import Dataset
+import torchvision.transforms as T
+import random
+import torch
+import numpy as np
 
-class HARCsvDataset(Dataset):
-    """
-    Custom dataset for HAR (Human Action Recognition) CSV files.
-    Handles both labeled (train/val) and unlabeled (test) datasets.
-    """
-    def __init__(self, csv_path, img_dir, transform=None, has_labels=True):
-        self.df = pd.read_csv(csv_path)
+class HARDataset(Dataset):
+    def __init__(self, csv_file, img_dir, transform=None, use_mixup=False, use_mosaic=False, alpha=0.4):
+        self.df = pd.read_csv(csv_file)
         self.img_dir = img_dir
         self.transform = transform
-        self.has_labels = has_labels
-
-        # Normalize column names
-        self.df.columns = [c.lower() for c in self.df.columns]
-
-        if "filename" not in self.df.columns:
-            raise ValueError(f"'filename' column not found in CSV: {csv_path}")
-
-        if self.has_labels and "label" not in self.df.columns:
-            raise ValueError(f"'label' column missing in labeled CSV: {csv_path}")
+        self.use_mixup = use_mixup
+        self.use_mosaic = use_mosaic
+        self.alpha = alpha
+        self.labels = sorted(self.df['label'].unique())
+        self.label2idx = {label: idx for idx, label in enumerate(self.labels)}
 
     def __len__(self):
         return len(self.df)
 
     def __getitem__(self, idx):
-        row = self.df.iloc[idx]
-        img_name = row["filename"]
-        img_path = os.path.join(self.img_dir, img_name)
+        img_name = os.path.join(self.img_dir, self.df.iloc[idx]['filename'])
+        image = Image.open(img_name).convert('RGB')
+        label = self.label2idx[self.df.iloc[idx]['label']]
 
-        img = Image.open(img_path).convert("RGB")
         if self.transform:
-            img = self.transform(img)
+            image = self.transform(image)
 
-        if self.has_labels:
-            # Convert label string to integer index
-            label = row["label"]
-            if isinstance(label, str):
-                label = HARCsvDataset.label_to_index(label)
-            return img, label
-        else:
-            return img, img_name
+        return image, label
 
-    # Map class names to indices
-    classes = ['calling', 'clapping', 'cycling', 'dancing', 'drinking', 'eating',
-               'fighting', 'hugging', 'laughing', 'listening_to_music', 'running',
-               'sitting', 'sleeping', 'texting', 'using_laptop']
-    class_to_idx = {cls_name: idx for idx, cls_name in enumerate(classes)}
+    # MixUp helper
+    def mixup(self, imgs, labels):
+        lam = np.random.beta(self.alpha, self.alpha)
+        idx2 = torch.randperm(imgs.size(0))
+        mixed_imgs = lam * imgs + (1 - lam) * imgs[idx2]
+        labels_onehot = torch.nn.functional.one_hot(labels, num_classes=len(self.labels)).float()
+        labels2_onehot = torch.nn.functional.one_hot(labels[idx2], num_classes=len(self.labels)).float()
+        mixed_labels = lam * labels_onehot + (1 - lam) * labels2_onehot
+        return mixed_imgs, mixed_labels
 
-    @staticmethod
-    def label_to_index(label):
-        return HARCsvDataset.class_to_idx[label]
+    # Mosaic helper
+    def mosaic(self, imgs, labels):
+        # Combine 4 random images into one (2x2 grid)
+        batch_size, c, h, w = imgs.size()
+        indices = torch.randperm(batch_size)
+        new_imgs = torch.zeros_like(imgs)
+        new_labels = torch.zeros_like(torch.nn.functional.one_hot(labels, num_classes=len(self.labels)).float())
+        for i in range(batch_size):
+            img1, img2, img3, img4 = imgs[i], imgs[indices[i % batch_size]], imgs[indices[(i+1) % batch_size]], imgs[indices[(i+2) % batch_size]]
+            # create 2x2 mosaic
+            top = torch.cat([img1[:, :h//2, :w//2], img2[:, :h//2, w//2:]], dim=2)
+            bottom = torch.cat([img3[:, h//2:, :w//2], img4[:, h//2:, w//2:]], dim=2)
+            new_imgs[i] = torch.cat([top, bottom], dim=1)
+            new_labels[i] = torch.nn.functional.one_hot(labels[i], num_classes=len(self.labels)).float()  # simple label
+        return new_imgs, new_labels
 
-    @staticmethod
-    def index_to_label(idx):
-        return HARCsvDataset.classes[idx]
+def split_csv(csv_file, train_ratio=0.8, val_ratio=0.1):
+    df = pd.read_csv(csv_file)
+    from sklearn.model_selection import train_test_split
+    train_df, temp_df = train_test_split(df, test_size=(1 - train_ratio), random_state=42, stratify=df['label'])
+    val_df, test_df = train_test_split(temp_df, test_size=0.5, random_state=42, stratify=temp_df['label'])
+
+    base_dir = os.path.dirname(csv_file)
+    train_csv = os.path.join(base_dir, 'train_split.csv')
+    val_csv = os.path.join(base_dir, 'val_split.csv')
+    test_csv = os.path.join(base_dir, 'test_split.csv')
+
+    train_df.to_csv(train_csv, index=False)
+    val_df.to_csv(val_csv, index=False)
+    test_df.to_csv(test_csv, index=False)
+    print(f"Splits saved. Train: {len(train_df)}, Val: {len(val_df)}, Test: {len(test_df)}")
+    return train_csv, val_csv, test_csv

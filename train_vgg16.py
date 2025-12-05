@@ -1,127 +1,126 @@
 import os
-import pandas as pd
+import time
 import torch
 import torch.nn as nn
+import torch.optim as optim
 from torch.utils.data import DataLoader
-from torchvision import models, transforms
-from dataset import HARCsvDataset
-from sklearn.metrics import f1_score
-from sklearn.model_selection import train_test_split
-from tqdm import tqdm
+import torchvision.transforms as T
+from torchvision.models import vgg16, VGG16_Weights
+from sklearn.metrics import f1_score, accuracy_score, precision_score, recall_score, confusion_matrix
+import numpy as np
+from dataset import HARDataset, split_csv
+import random
 
-# Paths
-BASE_PATH = "/home/ubuntu/.cache/kagglehub/datasets/meetnagadia/human-action-recognition-har-dataset/versions/1/Human Action Recognition"
-TRAIN_CSV = os.path.join(BASE_PATH, "Training_set.csv")
-TRAIN_IMG_DIR = os.path.join(BASE_PATH, "train")
-TEST_CSV = os.path.join(BASE_PATH, "Testing_set.csv")
-TEST_IMG_DIR = os.path.join(BASE_PATH, "test")
+# ---------------- Paths -----------------
+BASE_DIR = '/home/ubuntu/.cache/kagglehub/datasets/meetnagadia/human-action-recognition-har-dataset/versions/1/Human Action Recognition'
+IMG_DIR = os.path.join(BASE_DIR, 'train')
+CSV_PATH = os.path.join(BASE_DIR, 'Training_set.csv')
 
-# Hyperparameters
-batch_size = 32
-lr = 1e-4
-epochs = 10
-patience = 3  # for early stopping
-num_classes = 15
+# ---------------- Hyperparameters ----------------
+BATCH_SIZE = 32
+EPOCHS = 5
+LR = 1e-4
+DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-# Transforms
-transform_train = transforms.Compose([
-    transforms.Resize((224, 224)),
-    transforms.RandomHorizontalFlip(),
-    transforms.ToTensor(),
-    transforms.Normalize([0.485, 0.456, 0.406],
-                         [0.229, 0.224, 0.225])
+# ---------------- CSV Splits ----------------
+TRAIN_CSV, VAL_CSV, TEST_CSV = split_csv(CSV_PATH)
+
+# ---------------- Transforms ----------------
+train_transforms = T.Compose([
+    T.Resize((224, 224)),
+    T.RandomHorizontalFlip(),
+    T.ToTensor(),
+])
+val_transforms = T.Compose([
+    T.Resize((224, 224)),
+    T.ToTensor(),
 ])
 
-transform_test = transforms.Compose([
-    transforms.Resize((224, 224)),
-    transforms.ToTensor(),
-    transforms.Normalize([0.485, 0.456, 0.406],
-                         [0.229, 0.224, 0.225])
-])
+# ---------------- Datasets and Loaders ----------------
+train_dataset = HARDataset(TRAIN_CSV, IMG_DIR, transform=train_transforms, use_mixup=True, use_mosaic=True)
+val_dataset = HARDataset(VAL_CSV, IMG_DIR, transform=val_transforms)
+train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=4)
+val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=4)
 
-# Train/Validation split
-full_train_df = pd.read_csv(TRAIN_CSV)
-train_df, val_df = train_test_split(
-    full_train_df,
-    test_size=0.2,
-    stratify=full_train_df['label'],
-    random_state=42
-)
+# ---------------- Model ----------------
+model = vgg16(weights=VGG16_Weights.IMAGENET1K_V1)
+num_features = model.classifier[6].in_features
+model.classifier[6] = nn.Linear(num_features, len(train_dataset.labels))
+model = model.to(DEVICE)
 
-# Save temporary CSVs
-train_tmp_csv = "train_tmp.csv"
-val_tmp_csv = "val_tmp.csv"
-train_df.to_csv(train_tmp_csv, index=False)
-val_df.to_csv(val_tmp_csv, index=False)
-
-# Datasets and Loaders
-train_dataset = HARCsvDataset(train_tmp_csv, TRAIN_IMG_DIR, transform=transform_train, has_labels=True)
-val_dataset = HARCsvDataset(val_tmp_csv, TRAIN_IMG_DIR, transform=transform_test, has_labels=True)
-
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
-val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
-
-# Model
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = models.vgg16(weights=models.VGG16_Weights.DEFAULT)
-model.classifier[6] = nn.Linear(4096, num_classes)
-model = model.to(device)
-
-# Loss and Optimizer
+# ---------------- Loss and Optimizer ----------------
 criterion = nn.CrossEntropyLoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', patience=2, factor=0.5)
+optimizer = optim.Adam(model.parameters(), lr=LR)
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=2)
 
-# Early stopping
+# ---------------- Training Loop ----------------
 best_val_f1 = 0.0
-counter = 0
+start_time = time.time()
 
-# Training loop
-for epoch in range(epochs):
+for epoch in range(1, EPOCHS + 1):
     model.train()
-    all_labels, all_preds = [], []
+    all_preds, all_labels = [], []
+    for imgs, labels in train_loader:
+        imgs, labels = imgs.to(DEVICE), labels.to(DEVICE)
 
-    for imgs, labels in tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} - Training"):
-        imgs, labels = imgs.to(device), labels.to(device)
+        # Apply MixUp
+        if train_dataset.use_mixup and random.random() < 0.5:
+            imgs, labels_onehot = train_dataset.mixup(imgs, labels)
+            outputs = model(imgs)
+            loss = -(labels_onehot * torch.log_softmax(outputs, dim=1)).sum(dim=1).mean()
+        # Apply Mosaic (optional, for batch augmentation)
+        elif train_dataset.use_mosaic and random.random() < 0.3:
+            imgs, labels_onehot = train_dataset.mosaic(imgs, labels)
+            outputs = model(imgs)
+            loss = -(labels_onehot * torch.log_softmax(outputs, dim=1)).sum(dim=1).mean()
+        else:
+            outputs = model(imgs)
+            loss = criterion(outputs, labels)
+
         optimizer.zero_grad()
-        outputs = model(imgs)
-        loss = criterion(outputs, labels)
         loss.backward()
         optimizer.step()
 
-        preds = outputs.argmax(dim=1)
-        all_labels.extend(labels.cpu().numpy())
+        preds = outputs.argmax(1)
         all_preds.extend(preds.cpu().numpy())
+        all_labels.extend(labels.cpu().numpy())
 
-    train_f1 = f1_score(all_labels, all_preds, average='macro')
+    train_acc = accuracy_score(all_labels, all_preds)
+    train_prec = precision_score(all_labels, all_preds, average='macro', zero_division=0)
+    train_rec = recall_score(all_labels, all_preds, average='macro', zero_division=0)
+    train_f1 = f1_score(all_labels, all_preds, average='macro', zero_division=0)
 
-    # Validation
+    # ---------------- Validation ----------------
     model.eval()
-    val_labels, val_preds = [], []
+    all_preds, all_labels = [], []
     with torch.no_grad():
         for imgs, labels in val_loader:
-            imgs, labels = imgs.to(device), labels.to(device)
+            imgs, labels = imgs.to(DEVICE), labels.to(DEVICE)
             outputs = model(imgs)
-            preds = outputs.argmax(dim=1)
-            val_labels.extend(labels.cpu().numpy())
-            val_preds.extend(preds.cpu().numpy())
+            preds = outputs.argmax(1)
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
 
-    val_f1 = f1_score(val_labels, val_preds, average='macro')
-    print(f"Epoch {epoch+1}: Train F1: {train_f1:.4f}, Val F1: {val_f1:.4f}")
+    val_acc = accuracy_score(all_labels, all_preds)
+    val_prec = precision_score(all_labels, all_preds, average='macro', zero_division=0)
+    val_rec = recall_score(all_labels, all_preds, average='macro', zero_division=0)
+    val_f1 = f1_score(all_labels, all_preds, average='macro', zero_division=0)
+    val_cm = confusion_matrix(all_labels, all_preds)
 
-    # Scheduler step
-    scheduler.step(val_f1)
+    print(f"Epoch {epoch} - loss:{loss.item():.4f} "
+          f"Train -> acc:{train_acc:.4f} prec:{train_prec:.4f} rec:{train_rec:.4f} f1:{train_f1:.4f} | "
+          f"Val -> acc:{val_acc:.4f} prec:{val_prec:.4f} rec:{val_rec:.4f} f1:{val_f1:.4f}")
 
-    # Early stopping
     if val_f1 > best_val_f1:
         best_val_f1 = val_f1
-        counter = 0
-        torch.save(model.state_dict(), "best_vgg16.pth")
-        print("Saved new best model!")
-    else:
-        counter += 1
-        if counter >= patience:
-            print(f"No improvement in {patience} epochs. Early stopping.")
-            break
+        torch.save(model.state_dict(), 'best_vgg16.pth')
+        print(f"Saved best model (val_f1={best_val_f1:.4f})")
 
-print(f"Training Finished. Best Val F1: {best_val_f1:.4f}")
+    scheduler.step(val_f1)
+    print(f"Current LR: {scheduler.optimizer.param_groups[0]['lr']}")
+
+# ---------------- Training Time and Model Size ----------------
+end_time = time.time()
+print(f"\nTraining completed in {(end_time - start_time) / 60:.2f} minutes")
+model_size_mb = sum(p.numel() for p in model.parameters()) * 4 / (1024 ** 2)
+print(f"Model size: {model_size_mb:.2f} MB")
