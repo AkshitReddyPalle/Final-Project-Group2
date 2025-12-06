@@ -19,7 +19,7 @@ from sklearn.metrics import (
     confusion_matrix,
 )
 
-from Dataset import HARDataset, split_csv  # change to `from dataset import ...` if your file is lowercase
+from Dataset import HARDataset, split_csv  
 
 # ---------------- Paths -----------------
 BASE_DIR = "/home/ubuntu/Final-Project-Group2/Data/Human Action Recognition"
@@ -75,7 +75,7 @@ val_loader   = DataLoader(val_dataset,   batch_size=BATCH_SIZE, shuffle=False, n
 num_classes = len(train_dataset.labels)
 
 # ---------------- Model (Inception v3) ----------------
-# IMPORTANT: don't pass aux_logits=False when using weights.
+
 weights = Inception_V3_Weights.IMAGENET1K_V1
 model = inception_v3(weights=weights)  # aux_logits=True by default with weights
 in_features = model.fc.in_features
