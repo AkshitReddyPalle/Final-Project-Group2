@@ -14,8 +14,8 @@ TRAINING_CSV = os.path.join(BASE_DIR, "Training_set.csv")
 TRAIN_IMG_DIR = os.path.join(BASE_DIR, "train")
 
 
-TESTING_CSV = os.path.join(BASE_DIR, "Testing_set.csv")     # no labels
-TEST_IMG_DIR = os.path.join(BASE_DIR, "test")               # test images
+TESTING_CSV = os.path.join(BASE_DIR, "Testing_set.csv")     
+TEST_IMG_DIR = os.path.join(BASE_DIR, "test")               
 
 
 class HARDataset(Dataset):
