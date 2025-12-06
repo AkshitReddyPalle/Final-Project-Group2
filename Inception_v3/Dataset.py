@@ -27,7 +27,7 @@ class HARDataset(Dataset):
         self.use_mosaic = use_mosaic
         self.alpha = alpha
 
-        # assumes CSV has columns: filename, label
+        
         self.labels = sorted(self.df['label'].unique())
         self.label2idx = {label: idx for idx, label in enumerate(self.labels)}
 
