@@ -6,7 +6,14 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from PIL import Image
 from tqdm import tqdm
+import torch
 
+from sklearn.metrics import confusion_matrix
+from torchvision import transforms
+
+import seaborn as sns
+import matplotlib.pyplot as plt
+from train import BaselineCNN, HARCsvDataset  # import your classes
 
 # Same CNN model as train.py
 
@@ -133,5 +140,4 @@ def run_test():
     print(submission_df.head())
 
 
-if __name__ == "__main__":
-    run_test()
+

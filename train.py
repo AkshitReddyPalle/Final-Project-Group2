@@ -11,8 +11,7 @@ from sklearn.metrics import f1_score
 import torch.optim as optim
 import numpy as np
 from torch.optim.lr_scheduler import _LRScheduler
-
-
+import matplotlib.pyplot as plt
 
 # Custom Dataset
 class HARCsvDataset(Dataset):
@@ -148,12 +147,11 @@ def train_model():
     train_loader = DataLoader(train_dataset, batch_size=32, sampler=sampler)
     val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
 
-
     # Model
-
     model = BaselineCNN(num_classes).to(device)
     criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
     optimizer = optim.AdamW(model.parameters(), lr=3e-4, weight_decay=1e-4)
+
     warmup_epochs = 3
     total_epochs = 40
 
@@ -165,17 +163,16 @@ def train_model():
 
     best_val_f1 = 0
 
-
-
     # Training Loop
+    history = {"train_f1": [], "val_f1": []}
 
-    for epoch in range(40):
+    for epoch in range(total_epochs):
         model.train()
         preds, labels = [], []
         train_correct = 0
         total_train = 0
 
-        for imgs, lbls in tqdm(train_loader):
+        for imgs, lbls in tqdm(train_loader, desc=f"Epoch {epoch + 1}/{total_epochs}"):
             imgs, lbls = imgs.to(device), lbls.to(device)
 
             optimizer.zero_grad()
@@ -215,20 +212,34 @@ def train_model():
         val_f1 = f1_score(val_labels, val_preds, average="macro")
         val_acc = val_correct / total_val
 
+        #  Log history properly
+        history["train_f1"].append(train_f1)
+        history["val_f1"].append(val_f1)
+
         print(f"Epoch {epoch + 1:02d} | "
               f"Train F1: {train_f1:.4f} | Train Acc: {train_acc:.4f} | "
               f"Val F1: {val_f1:.4f} | Val Acc: {val_acc:.4f}")
 
         scheduler.step()
 
-        #Save Best Model
+        # Save best model
         if val_f1 > best_val_f1:
             best_val_f1 = val_f1
             torch.save(model.state_dict(), "best_cnn.pth")
-            print(" Saved new best model!")
+            print(" New best model saved!")
 
-    print("Training Finished. Best Val F1:", best_val_f1)
+    print("\n Training Completed — Best Val F1:", best_val_f1)
 
-
+    # Display F1 curve live instead of saving
+    plt.figure(figsize=(8, 5))
+    plt.plot(history["train_f1"], label="Train F1", linewidth=2)
+    plt.plot(history["val_f1"], label="Validation F1", linewidth=2)
+    plt.xlabel("Epoch")
+    plt.ylabel("F1 Score")
+    plt.title("Training vs Validation F1-Score")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
 if __name__ == "__main__":
     train_model()
