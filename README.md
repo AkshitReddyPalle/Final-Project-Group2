@@ -17,7 +17,7 @@ This project aims to develop a deep learning–based Human Action Recognition (H
 ├── Individual-Project-Report/        # Individual contributions and reports
 ├── README.md                         # Project overview (this file)
 
-
+```
 
 # Components
 
