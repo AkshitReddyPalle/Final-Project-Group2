@@ -5,7 +5,7 @@ import torchvision.transforms as T
 import pandas as pd
 import numpy as np
 
-from Dataset import HARDataset  # or from dataset import HARDataset if lowercase
+from Dataset import HARDataset  
 from torchvision.models import inception_v3, Inception_V3_Weights
 from torchvision.models.inception import InceptionOutputs
 
@@ -96,9 +96,8 @@ submission = pd.DataFrame({
 })
 
 # Save inside Inception_v3 folder
-out_dir = os.path.dirname(__file__)  # this is /home/ubuntu/Final-Project-Group2/Inception_v3
-os.makedirs(out_dir, exist_ok=True)  # already exists, but safe
-
+out_dir = os.path.dirname(__file__)  
+os.makedirs(out_dir, exist_ok=True)  
 out_path = os.path.join(out_dir, "test_split_predictions_inception_v3.csv")
 submission.to_csv(out_path, index=False)
 print(f"\nPredictions saved to {out_path}")
