@@ -7,6 +7,17 @@
 
 This project aims to develop a deep learning–based Human Action Recognition (HAR) system that classifies human activities from still RGB images. The system identifies 15 distinct action categories such as walking, clapping, cycling, and jumping. We explore multiple computer vision architectures, including a Custom CNN, VGG16, ResNet50, DCAM-Net, InceptionV3, and EfficientNet/ViT, to evaluate their performance on the HAR image dataset. The pipeline includes image preprocessing, data augmentation, model training, and evaluation using accuracy, precision, recall, and F1-score. The final phase will focus on model optimization and deployment for real-time activity recognition.
 
+## GitHub Directory Structure
+
+```
+├── CODE/                             # Source code for models and Streamlit demo
+├── Final-Group-Presentation/         # Slides and presentation materials
+├── Final-Group-Project-Report/       # Comprehensive final project documentation
+├── Group-Proposal/                   # Initial project proposal and scope
+├── Individual-Project-Report/        # Individual contributions and reports
+├── README.md                         # Project overview (this file)
+
+
 
 # Components
 
