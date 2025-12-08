@@ -5,7 +5,7 @@ import torchvision.transforms as T
 import pandas as pd
 import numpy as np
 
-from Dataset import HARDataset  
+from Dataset import HARDataset  # or from dataset import HARDataset if lowercase
 from torchvision.models import inception_v3, Inception_V3_Weights
 from torchvision.models.inception import InceptionOutputs
 

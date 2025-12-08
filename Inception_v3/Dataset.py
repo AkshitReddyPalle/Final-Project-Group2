@@ -14,8 +14,8 @@ TRAINING_CSV = os.path.join(BASE_DIR, "Training_set.csv")
 TRAIN_IMG_DIR = os.path.join(BASE_DIR, "train")
 
 
-TESTING_CSV = os.path.join(BASE_DIR, "Testing_set.csv")     
-TEST_IMG_DIR = os.path.join(BASE_DIR, "test")               
+TESTING_CSV = os.path.join(BASE_DIR, "Testing_set.csv")     # no labels
+TEST_IMG_DIR = os.path.join(BASE_DIR, "test")               # test images
 
 
 class HARDataset(Dataset):
@@ -27,7 +27,7 @@ class HARDataset(Dataset):
         self.use_mosaic = use_mosaic
         self.alpha = alpha
 
-        
+        # assumes CSV has columns: filename, label
         self.labels = sorted(self.df['label'].unique())
         self.label2idx = {label: idx for idx, label in enumerate(self.labels)}
 
