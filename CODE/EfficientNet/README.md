@@ -89,7 +89,24 @@ What test.py does:
 - Saves results to outputs_tta
 
 ------------------------------------------------------------
-**(Optional) STEP 5 - run GradCamp.py** 
+**STEP 5 - run rg.py** 
+
+Command:
+python3 rg.py 
+
+What rg.py does
+- It generate visualizations of the results
+- Confusion matric
+- Train vs Val loss curve
+- Train vs Val Accuracy curve
+- Per class f1 graphs
+
+The graphs can be found in the 'result EDA' folder. 
+
+
+------------------------------------------------------------
+
+**(Optional) STEP 6- run GradCamp.py** 
 
 Command:
 python GradCam.py --image /path/to/your/image.jpg
