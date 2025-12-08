@@ -19,8 +19,7 @@ from sklearn.metrics import (
     confusion_matrix,
 )
 
-from Dataset import HARDataset, split_csv  # change to `from dataset import ...` if your file is lowercase
-
+from Dataset import HARDataset, split_csv  
 # ---------------- Paths -----------------
 BASE_DIR = "/home/ubuntu/Final-Project-Group2/Data/Human Action Recognition"
 IMG_DIR = os.path.join(BASE_DIR, "train")
