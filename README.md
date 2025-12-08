@@ -16,6 +16,7 @@ This project aims to develop a deep learning–based Human Action Recognition (H
 ├── Group-Proposal/                   # Initial project proposal and scope
 ├── Individual-Project-Report/        # Individual contributions and reports
 ├── README.md                         # Project overview (this file)
+├── LICENCE                           # MIT LICENSE
 
 ```
 
