@@ -52,3 +52,172 @@ The confusion matrix and detailed per-class classification report are generated 
 **University:** George Washington University
 
 **Instructor:** Dr. Amir Jafari
+
+
+```
+# CNN Baseline Model for Human Action Recognition (HAR)
+
+## 1. Model Overview  
+This project implements a **baseline Convolutional Neural Network (CNN)** for the Human Action Recognition (HAR) image classification task involving **15 action classes**.
+
+The goal was to develop a strong, well-optimized baseline before comparing with advanced deep models such as **ResNet50, InceptionV3, EfficientNet, Vision Transformer (ViT), and DCAM-Net**.
+
+The baseline CNN was repeatedly improved using:
+
+- Extensive data augmentation  
+- RandAugment  
+- Random Erasing  
+- Label smoothing  
+- Class-balanced weighted sampling  
+- Cosine learning-rate scheduling with warmup  
+- A 5-stage deep CNN architecture with BatchNorm + Dropout  
+
+**Final Baseline Performance:**  
+ **~0.50 Validation F1-Score**  
+(Compared to the initial naive ~0.12–0.20 F1)
+
+---
+
+## 2. Dataset Summary  
+
+Dataset: **Human Action Recognition (Kaggle)**  
+• 12,000+ labeled images  
+• 15 human activity classes:
+
+> calling, clapping, cycling, dancing, drinking, eating, fighting, hugging, laughing, listening_to_music, running, sitting, sleeping, texting, using_laptop
+
+### Dataset Files  
+train/ → labeled images  
+test/ → unlabeled images  
+Training_set.csv → filename → label mapping  
+Testing_set.csv → image order for submission  
+
+### Dataset Challenges  
+The dataset contains heavy variation in:
+
+- Pose  
+- Illumination  
+- Background clutter  
+- Zoom  
+- Subject scale  
+
+This makes static-image action recognition a **non-trivial** classification task.
+
+---
+
+## 3. Baseline CNN Architecture  
+
+The final CNN contains **5 convolutional blocks**:
+
+Conv2D → BatchNorm → ReLU → MaxPool
+
+### Feature Extractor
+
+Block 1 : 3 → 32  (Downsample 1/2)  
+Block 2 : 32 → 64 (Downsample 1/4)  
+Block 3 : 64 → 128 (Downsample 1/8)  
+Block 4 : 128 → 256 (Downsample 1/16)  
+Block 5 : 256 → 512 (Downsample 1/32)
+
+Final output passes through:  
+AdaptiveAvgPool2d((1,1))
+
+### Classifier
+
+Flatten  
+Linear(512 → 256)  
+ReLU  
+Dropout(0.5)  
+Linear(256 → 15)
+
+**Total Parameters:** ~7.4M
+
+---
+
+## 4. Training Strategy  
+
+### ✔ Strong Data Augmentation
+- RandomResizedCrop(256, scale=(0.75,1.0))  
+- RandAugment(2 ops, magnitude=9)  
+- RandomHorizontalFlip  
+- RandomErasing (p=0.25)  
+
+### ✔ Label Smoothing: 0.1  
+### ✔ Class-Balanced Weighted Sampling  
+### ✔ Warmup + Cosine Annealing LR Scheduler  
+### ✔ Best-Model Saving  
+
+---
+
+## 5. Training Results  
+
+Final Model Performance:
+
+Best Validation F1: **0.4981**  
+Best Validation Accuracy: **~0.5095**  
+Final Train F1: **0.5031**  
+Final Train Accuracy: **0.5157**
+
+### F1 Score Progression  
+Epoch 01 → 0.12  
+Epoch 10 → 0.28  
+Epoch 20 → 0.39  
+Epoch 30 → 0.46  
+Epoch 40 → 0.49  
+
+---
+
+## 6. Confusion Matrix & Class Behavior (Interpretation)
+
+### Performs well on:
+- cycling  
+- using_laptop  
+- dancing  
+- calling  
+
+### Struggles on:
+- hugging vs laughing  
+- sitting vs using_laptop  
+- drinking vs eating  
+- sleeping vs sitting  
+
+---
+
+## 7. Importance of the CNN Baseline  
+
+This baseline model:
+
+- Establishes a fair comparison point for advanced models  
+- Shows the benefit of augmentation & regularization  
+- Provides a competitive non-pretrained benchmark (~50% F1)  
+
+---
+
+## 8. Key Lessons Learned  
+
+- Augmentations significantly boost performance  
+- Weighted sampling fixes imbalance  
+- Label smoothing stabilizes training  
+- Warmup + cosine LR improves gradient flow  
+- CNNs struggle with fine-grained human poses  
+
+---
+
+## 9. Conclusion  
+
+The final CNN baseline achieved:
+
+ **0.498 F1-score (Best Validation)**  
+
+This serves as a strong benchmark for comparison against:
+
+- ResNet50  
+- InceptionV3  
+- EfficientNet  
+- Vision Transformer  
+- DCAM-Net  
+
+Given dataset difficulty + no pretrained features, the performance is **highly competitive**.
+```
+ given the complexity of the dataset and the lack of pretrained
+features.
