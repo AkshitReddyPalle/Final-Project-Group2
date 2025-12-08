@@ -88,4 +88,22 @@ What test.py does:
 - Computes final test accuracy and loss
 - Saves results to outputs_tta
 
+------------------------------------------------------------
+**(Optional) STEP 5 - run GradCamp.py** 
+
+Command:
+python GradCam.py --image /path/to/your/image.jpg
+
+What GradCam.py does:
+
+- Generates a gradcam heatmap
+- Shows where the model is looking
+- Provides visual explainability
+- Helps debug model mistakes
+
+  Results for gradcam.py are attached in Gradcam results 
+  
+
+  
+
 
